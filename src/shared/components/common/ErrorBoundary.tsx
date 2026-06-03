@@ -22,7 +22,15 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
-    console.error('ErrorBoundary caught:', error, info.componentStack)
+    console.error('[ErrorBoundary]', error.message, info.componentStack)
+  }
+
+  // Reset when navigating to a different route so switching away from a broken
+  // page clears the error state for the next page.
+  componentDidUpdate(prevProps: Props): void {
+    if (this.state.hasError && prevProps.children !== this.props.children) {
+      this.setState({ hasError: false, error: null })
+    }
   }
 
   private handleReset = (): void => {
@@ -38,9 +46,14 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center mb-5">
             <AlertTriangle className="w-8 h-8 text-destructive" />
           </div>
-          <h3 className="text-base font-semibold text-foreground mb-2">Something went wrong</h3>
-          <p className="text-sm text-muted-foreground max-w-sm leading-relaxed mb-6">
+          <h3 className="text-base font-semibold text-foreground mb-2">
+            Something went wrong
+          </h3>
+          <p className="text-sm text-muted-foreground max-w-sm leading-relaxed mb-1">
             {this.state.error?.message ?? 'An unexpected error occurred.'}
+          </p>
+          <p className="text-xs text-muted-foreground mb-6">
+            Navigate to another page or click below to try again.
           </p>
           <button
             type="button"
