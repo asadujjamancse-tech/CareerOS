@@ -9,10 +9,11 @@
         default-src 'self';
         script-src 'self' 'unsafe-inline' 'unsafe-eval';
         style-src 'self' 'unsafe-inline';
-        img-src 'self' data: blob:;
+        img-src 'self' data: blob: https://*.ytimg.com https://*.ggpht.com https://i.vimeocdn.com;
         font-src 'self' data:;
         connect-src 'self' ws://localhost:* wss://localhost:*;
-        media-src 'self' blob:;
+        media-src 'self' blob: file:;
+        frame-src https://www.youtube.com https://www.youtube-nocookie.com https://*.youtube.com https://*.googlevideo.com https://player.vimeo.com https://vimeo.com;
       "
     />
     <title>CareerOS</title>

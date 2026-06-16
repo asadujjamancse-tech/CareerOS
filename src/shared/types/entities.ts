@@ -379,6 +379,7 @@ export interface JournalFilters {
 export type EntityType =
   | 'skill' | 'occupation' | 'project' | 'certification'
   | 'video' | 'note' | 'document' | 'journal_entry'
+  | 'home_lab' | 'interview_question'
 
 export interface Tag {
   id: string
@@ -396,6 +397,193 @@ export interface CreateTagInput {
 
 export interface UpdateTagInput extends Partial<CreateTagInput> {}
 
+// ─── Home Labs ───────────────────────────────────────────────────────────────
+
+export type HomeLabStatus = 'planned' | 'in-progress' | 'completed' | 'paused' | 'abandoned'
+export type HomeLabAssetType = 'screenshot' | 'document' | 'link' | 'other'
+
+export interface HomeLab extends BaseEntity {
+  title: string
+  slug: string
+  description: string | null
+  status: HomeLabStatus
+  notes: string | null
+  lessons_learned: string | null
+  completion_pct: number
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface HomeLabTask {
+  id: string
+  lab_id: string
+  title: string
+  is_done: 0 | 1
+  order_index: number
+  created_at: string
+  updated_at: string
+}
+
+export interface HomeLabProblem {
+  id: string
+  lab_id: string
+  problem: string
+  solution: string | null
+  order_index: number
+  created_at: string
+  updated_at: string
+}
+
+export interface HomeLabTimeEntry {
+  id: string
+  lab_id: string
+  duration_min: number
+  note: string | null
+  logged_date: string
+  created_at: string
+}
+
+export interface HomeLabAsset {
+  id: string
+  lab_id: string
+  title: string
+  type: HomeLabAssetType
+  file_path: string | null
+  url: string | null
+  notes: string | null
+  order_index: number
+  created_at: string
+  updated_at: string
+}
+
+export interface HomeLabSkillRef {
+  id: string
+  name: string
+  category_name: string
+  category_color: string
+  proficiency_level: string
+}
+
+export interface HomeLabCertRef {
+  id: string
+  name: string
+  issuer: string
+  status: string
+}
+
+export interface HomeLabWithMeta extends HomeLab {
+  task_count: number
+  done_task_count: number
+  total_minutes: number
+  skill_count: number
+  problem_count: number
+  asset_count: number
+}
+
+export interface HomeLabDetail extends HomeLabWithMeta {
+  tasks: HomeLabTask[]
+  problems: HomeLabProblem[]
+  time_entries: HomeLabTimeEntry[]
+  assets: HomeLabAsset[]
+  skills: HomeLabSkillRef[]
+  certifications: HomeLabCertRef[]
+}
+
+export interface CreateHomeLabInput {
+  title: string
+  description?: string | null
+  status?: HomeLabStatus
+  notes?: string | null
+  lessons_learned?: string | null
+  completion_pct?: number
+  started_at?: string | null
+  completed_at?: string | null
+  skill_ids?: string[]
+  certification_ids?: string[]
+}
+
+export interface UpdateHomeLabInput extends Partial<CreateHomeLabInput> {}
+
+export interface HomeLabFilters {
+  status?: HomeLabStatus | undefined
+  search?: string | undefined
+  page?: number | undefined
+  pageSize?: number | undefined
+}
+
+// ─── Interview Questions ──────────────────────────────────────────────────────
+
+export type InterviewDifficulty = 'easy' | 'medium' | 'hard'
+
+export interface InterviewCategory {
+  id: string
+  name: string
+  description: string | null
+  color_hex: string
+  order_index: number
+  created_at: string
+  updated_at: string
+}
+
+export interface InterviewQuestion extends BaseEntity {
+  category_id: string
+  question: string
+  difficulty: InterviewDifficulty
+  personal_answer: string | null
+  ideal_answer: string | null
+  notes: string | null
+  mastery_score: number
+  last_reviewed_at: string | null
+  review_count: number
+}
+
+export interface InterviewQuestionWithMeta extends InterviewQuestion {
+  category_name: string
+  category_color: string
+}
+
+export interface CreateInterviewCategoryInput {
+  name: string
+  description?: string | null
+  color_hex?: string
+  order_index?: number
+}
+
+export interface UpdateInterviewCategoryInput extends Partial<CreateInterviewCategoryInput> {}
+
+export interface CreateInterviewQuestionInput {
+  category_id: string
+  question: string
+  difficulty?: InterviewDifficulty
+  personal_answer?: string | null
+  ideal_answer?: string | null
+  notes?: string | null
+  mastery_score?: number
+}
+
+export interface UpdateInterviewQuestionInput extends Partial<CreateInterviewQuestionInput> {
+  last_reviewed_at?: string | null
+}
+
+export interface InterviewQuestionFilters {
+  search?: string | undefined
+  category_id?: string | undefined
+  difficulty?: InterviewDifficulty | undefined
+  mastery_min?: number | undefined
+  mastery_max?: number | undefined
+  page?: number | undefined
+  pageSize?: number | undefined
+}
+
+export interface QuestionProgressStats {
+  total: number
+  mastered_count: number
+  avg_mastery: number
+  by_difficulty: Array<{ difficulty: string; count: number }>
+  by_mastery: Array<{ score: number; count: number }>
+  by_category: Array<{ category_id: string; category_name: string; total: number; mastered: number }>
+}
+
 // ─── Search ─────────────────────────────────────────────────────────────────
 
 export interface SearchResult {
@@ -403,5 +591,6 @@ export interface SearchResult {
   entity_id: string
   title: string
   excerpt: string
+  subtitle: string
   rank: number
 }

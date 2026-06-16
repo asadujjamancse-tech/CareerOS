@@ -1,4 +1,5 @@
-import { Edit2, Trash2, Tag } from 'lucide-react'
+import { Edit2, Trash2, Tag, ArrowRight } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '@shared/components/ui/button'
 import { truncate } from '@shared/lib/utils'
 import { SkillLevelBadge } from './SkillLevelBadge'
@@ -12,8 +13,16 @@ interface SkillCardProps {
 }
 
 export function SkillCard({ skill, onEdit, onDelete }: SkillCardProps) {
+  const navigate = useNavigate()
+
   return (
-    <div className="group relative flex flex-col gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:border-zinc-600">
+    <div
+      className="group relative flex flex-col gap-3 rounded-lg border border-border bg-card p-4 transition-colors hover:border-zinc-600 cursor-pointer"
+      onClick={() => navigate(`/skills/${skill.id}`)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') navigate(`/skills/${skill.id}`) }}
+    >
       {/* Category dot + name */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -31,7 +40,7 @@ export function SkillCard({ skill, onEdit, onDelete }: SkillCardProps) {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => onEdit(skill.id)}
+            onClick={e => { e.stopPropagation(); onEdit(skill.id) }}
             aria-label={`Edit ${skill.name}`}
           >
             <Edit2 />
@@ -39,7 +48,7 @@ export function SkillCard({ skill, onEdit, onDelete }: SkillCardProps) {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => onDelete(skill.id)}
+            onClick={e => { e.stopPropagation(); onDelete(skill.id) }}
             aria-label={`Delete ${skill.name}`}
             className="text-muted-foreground hover:text-destructive"
           >
@@ -67,12 +76,15 @@ export function SkillCard({ skill, onEdit, onDelete }: SkillCardProps) {
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border pt-2 mt-1">
         <span>{skill.years_experience > 0 ? `${skill.years_experience}y exp` : 'No exp logged'}</span>
-        {skill.tag_count > 0 && (
-          <span className="flex items-center gap-1">
-            <Tag className="h-3 w-3" />
-            {skill.tag_count}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {skill.tag_count > 0 && (
+            <span className="flex items-center gap-1">
+              <Tag className="h-3 w-3" />
+              {skill.tag_count}
+            </span>
+          )}
+          <ArrowRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity text-primary" />
+        </div>
       </div>
     </div>
   )

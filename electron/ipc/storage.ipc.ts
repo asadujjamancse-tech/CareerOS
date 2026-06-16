@@ -51,6 +51,46 @@ export function registerStorageHandlers(): void {
     },
   )
 
+  ipcMain.handle(
+    IPC.STORAGE.IMPORT_FILES,
+    async (_e, options: { category: string; accept?: string[]; title?: string }) => {
+      try {
+        const result = await dialog.showOpenDialog({
+          title: options.title ?? 'Select files',
+          properties: ['openFile', 'multiSelections'],
+          filters: options.accept?.length
+            ? [{ name: 'Files', extensions: options.accept }]
+            : [{ name: 'All Files', extensions: ['*'] }],
+        })
+
+        if (result.canceled || !result.filePaths.length) {
+          return fail('No files selected')
+        }
+
+        const destDir = getAttachmentsDir(options.category)
+        const items = result.filePaths.map((srcPath) => {
+          const originalName = path.basename(srcPath)
+          const stat = fs.statSync(srcPath)
+          const ext = path.extname(originalName)
+          const timestamp = Date.now()
+          const destName = `${timestamp}_${originalName}`
+          const destPath = path.join(destDir, destName)
+          fs.copyFileSync(srcPath, destPath)
+          return {
+            path: destPath,
+            originalName,
+            size: stat.size,
+            mimeType: getMimeType(ext),
+          }
+        })
+
+        return ok({ items })
+      } catch (err) {
+        return fail(err instanceof Error ? err.message : 'Failed to import files')
+      }
+    },
+  )
+
   ipcMain.handle(IPC.STORAGE.OPEN_FILE, async (_e, filePath: string) => {
     try {
       if (!fs.existsSync(filePath)) return fail('File not found on disk')
@@ -81,7 +121,14 @@ function getMimeType(ext: string): string {
     '.gif': 'image/gif',
     '.mp4': 'video/mp4',
     '.mov': 'video/quicktime',
-    '.zip': 'application/zip',
+    '.zip':  'application/zip',
+    '.js':   'text/javascript',
+    '.ts':   'text/typescript',
+    '.jsx':  'text/jsx',
+    '.tsx':  'text/tsx',
+    '.json': 'application/json',
+    '.html': 'text/html',
+    '.css':  'text/css',
   }
   return map[ext.toLowerCase()] ?? 'application/octet-stream'
 }

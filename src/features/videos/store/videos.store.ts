@@ -9,6 +9,7 @@ interface VideosState {
   detail: VideoDetail | null; isLoadingDetail: boolean
   isFormOpen: boolean; editingId: string | null; isSubmitting: boolean; formError: string | null
   deletingId: string | null; isDeleting: boolean
+  watchingVideo: VideoWithMeta | null
 
   fetch: () => Promise<void>; setPage: (p: number) => void
   setSearch: (s: string) => void
@@ -18,6 +19,9 @@ interface VideosState {
   openCreate: () => void; openEdit: (id: string) => void; closeForm: () => void
   submit: (v: VideoFormValues) => Promise<boolean>
   confirmDelete: (id: string) => void; cancelDelete: () => void; executeDelete: () => Promise<boolean>
+  openWatch: (video: VideoWithMeta) => void
+  closeWatch: () => void
+  saveWatchNotes: (notes: string) => Promise<void>
 }
 
 const DF: VideoFilters = { search: '', source: '', watch_status: '' }
@@ -28,6 +32,7 @@ export const useVideosStore = create<VideosState>((set, get) => ({
   detail: null, isLoadingDetail: false,
   isFormOpen: false, editingId: null, isSubmitting: false, formError: null,
   deletingId: null, isDeleting: false,
+  watchingVideo: null,
 
   setSearch(search) { set(s => ({ filters: { ...s.filters, search }, page: 1 })); void get().fetch() },
   setFilterField(k, v) { set(s => ({ filters: { ...s.filters, [k]: v }, page: 1 })); void get().fetch() },
@@ -98,5 +103,20 @@ export const useVideosStore = create<VideosState>((set, get) => ({
       if (r.success) { set({ deletingId: null }); void get().fetch(); return true }
       return false
     } catch { return false } finally { set({ isDeleting: false }) }
+  },
+
+  openWatch(video) { set({ watchingVideo: video }) },
+  closeWatch() { set({ watchingVideo: null }) },
+  async saveWatchNotes(notes) {
+    const { watchingVideo } = get()
+    if (!watchingVideo) return
+    const r = await api.videos.update(watchingVideo.id, { notes })
+    if (r.success) {
+      const updated = { ...watchingVideo, notes }
+      set({
+        watchingVideo: updated,
+        items: get().items.map(v => v.id === watchingVideo.id ? { ...v, notes } : v),
+      })
+    }
   },
 }))

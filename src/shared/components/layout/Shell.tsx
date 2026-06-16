@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import { Monitor } from 'lucide-react'
 import { Sidebar } from './Sidebar'
+import { TitleBar } from './TitleBar'
 import { isElectron } from '@shared/lib/platform'
 
 function BrowserModeBanner() {
@@ -17,13 +18,18 @@ function BrowserModeBanner() {
 
 export function Shell(): React.ReactElement {
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {!isElectron && <BrowserModeBanner />}
-        <main className="flex-1 overflow-y-auto">
-          <Outlet />
-        </main>
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background">
+      {/* Custom title bar — primary drag region; houses macOS traffic lights */}
+      <TitleBar />
+
+      <div className="flex flex-1 overflow-hidden">
+        <Sidebar />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {!isElectron && <BrowserModeBanner />}
+          <main className="flex-1 overflow-y-auto">
+            <Outlet />
+          </main>
+        </div>
       </div>
     </div>
   )

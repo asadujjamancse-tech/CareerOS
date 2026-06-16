@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Video, Plus, Edit2, Trash2, X, Clock, CheckCircle2, Play, RefreshCw } from 'lucide-react'
+import { Video, Plus, Edit2, Trash2, X, Clock, CheckCircle2, Play, RefreshCw, ArrowLeft, ExternalLink } from 'lucide-react'
 import { api } from '@shared/lib/ipc-client'
 import { PageLayout } from '@shared/components/layout/PageLayout'
 import { EmptyState } from '@shared/components/common/EmptyState'
@@ -13,8 +13,9 @@ import { Input } from '@shared/components/ui/input'
 import { Textarea } from '@shared/components/ui/textarea'
 import { Label } from '@shared/components/ui/label'
 import { Badge } from '@shared/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select'
 import { Separator } from '@shared/components/ui/separator'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@shared/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared/components/ui/tabs'
 import {
   Dialog, DialogContent, DialogDescription,
   DialogFooter, DialogHeader, DialogTitle,
@@ -28,16 +29,18 @@ import { useVideosStore } from '../store/videos.store'
 import type { VideoSource, VideoWatchStatus, VideoWithMeta, SkillRef, Tag } from '../types/video.types'
 import { formatRelativeDate } from '@shared/lib/utils'
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 const SOURCE_LABELS: Record<VideoSource, string> = {
   youtube: 'YouTube', vimeo: 'Vimeo', udemy: 'Udemy',
   coursera: 'Coursera', pluralsight: 'Pluralsight', local: 'Local', other: 'Other',
 }
 
 const WATCH_STATUS_CONFIG: Record<VideoWatchStatus, { label: string; icon: typeof Clock; color: string }> = {
-  unwatched: { label: 'Unwatched', icon: Clock, color: 'text-muted-foreground' },
-  watching: { label: 'Watching', icon: Play, color: 'text-blue-500' },
+  unwatched: { label: 'Unwatched', icon: Clock,        color: 'text-muted-foreground' },
+  watching:  { label: 'Watching',  icon: Play,         color: 'text-blue-500' },
   completed: { label: 'Completed', icon: CheckCircle2, color: 'text-green-500' },
-  revisit: { label: 'Revisit', icon: RefreshCw, color: 'text-amber-500' },
+  revisit:   { label: 'Revisit',   icon: RefreshCw,    color: 'text-amber-500' },
 }
 
 function formatDuration(seconds: number | null): string {
@@ -48,11 +51,310 @@ function formatDuration(seconds: number | null): string {
   return `${m}m`
 }
 
-function VideoCard({ video, onEdit, onDelete }: {
-  video: VideoWithMeta; onEdit: (id: string) => void; onDelete: (id: string) => void
+// ── YouTube / Vimeo ID extraction ─────────────────────────────────────────────
+
+function extractYouTubeId(url: string): string | null {
+  try {
+    const u = new URL(url)
+    if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0] || null
+    if (u.hostname.includes('youtube.com')) {
+      const v = u.searchParams.get('v')
+      if (v) return v
+      if (u.pathname.startsWith('/embed/')) return u.pathname.split('/')[2] || null
+    }
+    return null
+  } catch { return null }
+}
+
+function extractVimeoId(url: string): string | null {
+  try {
+    const u = new URL(url)
+    if (u.hostname === 'vimeo.com' || u.hostname === 'www.vimeo.com') {
+      return u.pathname.replace(/^\//, '').split('/')[0] || null
+    }
+    if (u.hostname === 'player.vimeo.com') {
+      return u.pathname.split('/')[2] || null
+    }
+    return null
+  } catch { return null }
+}
+
+function getEmbedUrl(video: VideoWithMeta): string | null {
+  if (!video.url) return null
+  if (video.source === 'youtube') {
+    const id = extractYouTubeId(video.url)
+    return id ? `https://www.youtube.com/embed/${id}?autoplay=1&rel=0` : null
+  }
+  if (video.source === 'vimeo') {
+    const id = extractVimeoId(video.url)
+    return id ? `https://player.vimeo.com/video/${id}?autoplay=1` : null
+  }
+  return null
+}
+
+// ── VideoProvider abstraction ─────────────────────────────────────────────────
+
+function EmbedUnavailable({
+  message,
+  detail,
+  onOpenExternal,
+}: {
+  message: string
+  detail: string
+  onOpenExternal?: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center text-center text-muted-foreground p-12 max-w-sm">
+      <Video className="h-20 w-20 mb-4 opacity-10" />
+      <p className="font-medium text-sm mb-1">{message}</p>
+      <p className="text-xs text-muted-foreground/70 mb-4">{detail}</p>
+      {onOpenExternal && (
+        <Button variant="outline" size="sm" onClick={onOpenExternal} className="gap-1.5">
+          <ExternalLink className="h-3.5 w-3.5" />Open in Browser
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function VideoPlayer({
+  video,
+  onOpenExternal,
+}: {
+  video: VideoWithMeta
+  onOpenExternal: () => void
+}) {
+  const [localFailed, setLocalFailed] = useState(false)
+
+  // Local MP4 / WebM / Ogg — native <video> element
+  if (video.source === 'local') {
+    if (!video.local_path) {
+      return (
+        <EmbedUnavailable
+          message="No local file path"
+          detail="Edit this video to set a local file path."
+        />
+      )
+    }
+    if (localFailed) {
+      return (
+        <EmbedUnavailable
+          message="Could not load local file"
+          detail="The file may have moved or cannot be read."
+          onOpenExternal={onOpenExternal}
+        />
+      )
+    }
+    const src = video.local_path.startsWith('file://')
+      ? video.local_path
+      : `file://${video.local_path}`
+    const ext = video.local_path.split('.').pop()?.toLowerCase()
+    const mime =
+      ext === 'mp4' ? 'video/mp4' :
+      ext === 'webm' ? 'video/webm' :
+      ext === 'ogg' ? 'video/ogg' : null
+    if (!mime) {
+      return (
+        <EmbedUnavailable
+          message="Unsupported file format"
+          detail="Only MP4, WebM, and Ogg files can be played inline."
+          onOpenExternal={onOpenExternal}
+        />
+      )
+    }
+    return (
+      <video
+        src={src}
+        controls
+        autoPlay
+        className="w-full h-full max-h-full object-contain"
+        onError={() => setLocalFailed(true)}
+      >
+        <source src={src} type={mime} />
+      </video>
+    )
+  }
+
+  // YouTube / Vimeo — iframe embed
+  const embedUrl = getEmbedUrl(video)
+  if (!embedUrl) {
+    return (
+      <EmbedUnavailable
+        message={video.url ? 'Cannot embed this video' : 'No URL provided'}
+        detail={
+          video.source === 'youtube'
+            ? 'This YouTube URL is not in a recognised format.'
+            : video.url
+            ? `${SOURCE_LABELS[video.source]} videos cannot be embedded. Open in your browser instead.`
+            : 'Add a URL in Edit Video to enable playback.'
+        }
+        {...(video.url ? { onOpenExternal } : {})}
+      />
+    )
+  }
+
+  return (
+    <div className="relative w-full" style={{ paddingTop: '56.25%' }}>
+      <iframe
+        key={embedUrl}
+        src={embedUrl}
+        title={video.title}
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+        allowFullScreen
+        className="absolute inset-0 w-full h-full border-0"
+      />
+    </div>
+  )
+}
+
+// ── Video Workspace (embedded player + notes) ─────────────────────────────────
+
+function VideoWorkspace() {
+  const { watchingVideo, closeWatch, saveWatchNotes } = useVideosStore()
+  const [notes, setNotes] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    setNotes(watchingVideo?.notes ?? '')
+  }, [watchingVideo?.id, watchingVideo?.notes])
+
+  if (!watchingVideo) return null
+
+  const status = WATCH_STATUS_CONFIG[watchingVideo.watch_status]
+  const StatusIcon = status.icon
+
+  const handleSaveNotes = async () => {
+    setIsSaving(true)
+    await saveWatchNotes(notes)
+    setIsSaving(false)
+  }
+
+  return (
+    <div className="flex flex-col h-screen max-h-screen overflow-hidden bg-background">
+      {/* Top bar */}
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-card shrink-0">
+        <Button variant="ghost" size="sm" onClick={closeWatch} className="gap-1.5 shrink-0">
+          <ArrowLeft className="h-4 w-4" />Videos
+        </Button>
+        <Separator orientation="vertical" className="h-5" />
+        <div className="flex-1 min-w-0">
+          <h2 className="font-semibold text-sm truncate">{watchingVideo.title}</h2>
+          {watchingVideo.channel && (
+            <p className="text-xs text-muted-foreground truncate">{watchingVideo.channel}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Badge variant="secondary" className="text-xs">{SOURCE_LABELS[watchingVideo.source]}</Badge>
+          <span className={`flex items-center gap-1 text-xs ${status.color}`}>
+            <StatusIcon className="h-3 w-3" />{status.label}
+          </span>
+          {watchingVideo.url && (
+            <Button variant="ghost" size="icon-sm"
+              onClick={() => window.open(watchingVideo.url ?? '', '_blank')}
+              title="Open in browser">
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex flex-1 min-h-0">
+        {/* Left: Player */}
+        <div className="flex-1 bg-black flex items-center justify-center">
+          <VideoPlayer
+            video={watchingVideo}
+            onOpenExternal={() => window.open(watchingVideo.url ?? watchingVideo.local_path ?? '', '_blank')}
+          />
+        </div>
+
+        {/* Right: Side panel */}
+        <div className="w-80 border-l border-border flex flex-col bg-card shrink-0 min-h-0">
+          <Tabs defaultValue="notes" className="flex flex-col flex-1 min-h-0">
+            <TabsList className="mx-3 mt-3 shrink-0">
+              <TabsTrigger value="notes" className="flex-1">Notes</TabsTrigger>
+              <TabsTrigger value="info" className="flex-1">Info</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="notes" className="flex-1 flex flex-col p-3 gap-2 min-h-0 mt-0">
+              <p className="text-xs text-muted-foreground shrink-0">
+                Capture timestamps, key concepts, and takeaways.
+              </p>
+              <Textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="e.g. 2:30 — Key insight about...&#10;5:00 — Command: kubectl get pods&#10;10:15 — Summary point..."
+                className="flex-1 text-xs font-mono resize-none min-h-0"
+              />
+              <Button
+                size="sm"
+                onClick={() => void handleSaveNotes()}
+                disabled={isSaving}
+                className="shrink-0"
+              >
+                {isSaving ? 'Saving…' : 'Save Notes'}
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="info" className="p-3 overflow-y-auto space-y-4 mt-0">
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-0.5">Source</p>
+                  <p>{SOURCE_LABELS[watchingVideo.source]}</p>
+                </div>
+                {watchingVideo.channel && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-0.5">Channel / Author</p>
+                    <p>{watchingVideo.channel}</p>
+                  </div>
+                )}
+                {watchingVideo.duration_seconds && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-0.5">Duration</p>
+                    <p>{formatDuration(watchingVideo.duration_seconds)}</p>
+                  </div>
+                )}
+                {watchingVideo.description && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-0.5">Description</p>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{watchingVideo.description}</p>
+                  </div>
+                )}
+                {watchingVideo.skill_count > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-0.5">Linked Skills</p>
+                    <p className="text-xs">{watchingVideo.skill_count} skill{watchingVideo.skill_count !== 1 ? 's' : ''}</p>
+                  </div>
+                )}
+              </div>
+
+              {watchingVideo.url && (
+                <Button variant="outline" size="sm" className="w-full gap-1.5"
+                  onClick={() => window.open(watchingVideo.url ?? '', '_blank')}>
+                  <ExternalLink className="h-3.5 w-3.5" />Open in Browser
+                </Button>
+              )}
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Video Card ────────────────────────────────────────────────────────────────
+
+function VideoCard({ video, onEdit, onDelete, onWatch }: {
+  video: VideoWithMeta
+  onEdit: (id: string) => void
+  onDelete: (id: string) => void
+  onWatch: (video: VideoWithMeta) => void
 }) {
   const status = WATCH_STATUS_CONFIG[video.watch_status]
   const StatusIcon = status.icon
+  const canEmbed =
+    ((video.source === 'youtube' || video.source === 'vimeo') && !!video.url) ||
+    (video.source === 'local' && !!video.local_path)
 
   return (
     <div className="group flex flex-col gap-2 rounded-lg border border-border bg-card p-4 hover:border-zinc-600 transition-colors">
@@ -78,6 +380,12 @@ function VideoCard({ video, onEdit, onDelete }: {
         </p>
       )}
 
+      {canEmbed && (
+        <Button variant="secondary" size="sm" onClick={() => onWatch(video)} className="gap-1.5 w-full mt-1">
+          <Play className="h-3.5 w-3.5" />Watch Now
+        </Button>
+      )}
+
       <div className="flex items-center justify-between mt-auto pt-2 border-t border-border text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
@@ -97,6 +405,8 @@ function VideoCard({ video, onEdit, onDelete }: {
     </div>
   )
 }
+
+// ── Video Form ────────────────────────────────────────────────────────────────
 
 function VideoForm() {
   const { isFormOpen, editingId, detail, isSubmitting, formError, closeForm, submit } = useVideosStore()
@@ -319,6 +629,8 @@ function VideoForm() {
   )
 }
 
+// ── Delete Dialog ─────────────────────────────────────────────────────────────
+
 function DeleteVideoDialog() {
   const { deletingId, isDeleting, items, cancelDelete, executeDelete } = useVideosStore()
   const video = items.find(v => v.id === deletingId)
@@ -342,14 +654,21 @@ function DeleteVideoDialog() {
   )
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 export function VideosPage() {
   const {
     items, total, page, pageSize, totalPages, isLoading, listError,
     filters, fetch, setSearch, setPage, setFilterField, clearFilters,
     openCreate, openEdit, confirmDelete,
+    watchingVideo, openWatch,
   } = useVideosStore()
 
   useEffect(() => { void fetch() }, [fetch])
+
+  if (watchingVideo) {
+    return <VideoWorkspace />
+  }
 
   const hasFilters = !!filters.search || !!filters.source || !!filters.watch_status
 
@@ -415,7 +734,7 @@ export function VideosPage() {
             </p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {items.map(video => (
-                <VideoCard key={video.id} video={video} onEdit={openEdit} onDelete={confirmDelete} />
+                <VideoCard key={video.id} video={video} onEdit={openEdit} onDelete={confirmDelete} onWatch={openWatch} />
               ))}
             </div>
             <Pagination page={page} totalPages={totalPages} total={total} pageSize={pageSize} onPageChange={setPage} />
